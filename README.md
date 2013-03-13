@@ -1,4 +1,4 @@
-GoAMF
+GoAMF [![Build Status](https://secure.travis-ci.org/zhangpeihao/goamf.png)](http://travis-ci.org/zhangpeihao/goamf)
 ======
 
 AFM0 & AMF3 encoding.
