@@ -7,6 +7,11 @@ import (
 )
 
 const (
+	AMF0 = uint(0)
+	AMF3 = uint(3)
+)
+
+const (
 	AMF0_NUMBER_MARKER         = 0x00
 	AMF0_BOOLEAN_MARKER        = 0x01
 	AMF0_STRING_MARKER         = 0x02
