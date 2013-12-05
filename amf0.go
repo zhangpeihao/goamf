@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"time"
 )
 
 //-----------------------------------------------------------------------
@@ -380,6 +381,67 @@ func ReadObjectProperty(r Reader) (Object, error) {
 	return obj, nil
 }
 
+// A strict Array contains only ordinal indices; however, in AMF 0 the indices can be dense
+// or sparse. Undefined entries in the sparse regions between indices are serialized as
+// undefined.
+//
+// array-count  = U32
+// strict-array-type  = array-count *(value-type)
+//
+// A 32-bit array-count implies a theoretical maximum of 4,294,967,295 array entries.
+func ReadStrictArray(r Reader) (arr []interface{}, err error) {
+	var arrayCount uint32
+	err = binary.Read(r, binary.BigEndian, &arrayCount)
+	if err != nil {
+		return nil, err
+	}
+	if arrayCount == 0 {
+		return
+	}
+	arr = make([]interface{}, arrayCount)
+
+	for i := uint32(0); i < arrayCount; i++ {
+		arr[i], err = ReadValue(r)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return
+}
+
+// An ActionScript Date is serialized as the number of milliseconds elapsed since the epoch
+// of midnight on 1st Jan 1970 in the UTC time zone. While the design of this type reserves
+// room for time zone offset information, it should not be filled in, nor used, as it is
+// unconventional to change time zones when serializing dates on a network. It is suggested
+// that the time zone be queried independently as needed.
+// time-zone                = S16                                  ; reserved,
+//                                                                 ; not supported
+//                                                                 ; should be set
+// Keng-die: time-zone = int16 * -60 (seconds)
+//                                                                 ; to 0x0000
+// date-type                = date-marker DOUBLE time-zone
+func ReadDate(r Reader) (t time.Time, err error) {
+	var d float64
+	var timeZone int16
+	if err = binary.Read(r, binary.BigEndian, &d); err == nil {
+		// time-zone
+		err = binary.Read(r, binary.BigEndian, &timeZone)
+		if err != nil {
+			fmt.Printf("ReadDate() Read time zone err: %s\n", err)
+			return
+		}
+		d /= 1000.0
+		//		d += float64(timeZone) * -60.0
+		sec := int64(d)
+		nsec := int64((d - float64(sec)) * 1000000000.0)
+		t = time.Unix(sec, nsec)
+	} else {
+		fmt.Printf("ReadDate() ReadDouble err: %s\n", err)
+
+	}
+	return
+}
+
 func ReadValue(r Reader) (value interface{}, err error) {
 	marker, err := ReadMarker(r)
 	if err != nil {
@@ -423,9 +485,9 @@ func ReadValue(r Reader) (value interface{}, err error) {
 	case AMF0_OBJECT_END_MARKER:
 		return nil, errors.New("Marker error, Object end")
 	case AMF0_STRICT_ARRAY_MARKER:
-		return nil, errors.New("Unsupported type: strict array")
+		return ReadStrictArray(r)
 	case AMF0_DATE_MARKER:
-		return nil, errors.New("Unsupported type: date")
+		return ReadDate(r)
 	case AMF0_LONG_STRING_MARKER:
 		return ReadUTF8Long(r)
 	case AMF0_UNSUPPORTED_MARKER:
