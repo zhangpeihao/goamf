@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"sort"
 )
 
 //-----------------------------------------------------------------------
@@ -171,6 +170,54 @@ func WriteObject(w Writer, obj Object) (n int, err error) {
 	return n + m, err
 }
 
+func WriteFields(w Writer, value reflect.Value) (int, error) {
+	var n int
+
+	for i := 0; i < value.NumField(); i++ {
+		field := value.Field(i)
+		structField := value.Type().Field(i)
+
+		if field.Kind() == reflect.Struct && structField.Anonymous {
+			m, err := WriteFields(w, field)
+			if err != nil {
+				return n, err
+			}
+			n += m
+		} else {
+			m, err := WriteField(w, structField, field)
+			if err != nil {
+				return n, err
+			}
+			n += m
+		}
+	}
+
+	return n, nil
+}
+
+func WriteField(w Writer, structField reflect.StructField, field reflect.Value) (int, error) {
+	var n, m int
+
+	name := structField.Tag.Get("amf")
+	if name == "" {
+		name = structField.Name
+	}
+
+	m, err := WriteObjectName(w, name)
+	if err != nil {
+		return n, err
+	}
+	n += m
+
+	m, err = WriteValue(w, field.Interface())
+	if err != nil {
+		return n, err
+	}
+	n += m
+
+	return n, nil
+}
+
 func WriteValue(w Writer, value interface{}) (n int, err error) {
 	if value == nil {
 		return WriteNull(w)
@@ -219,32 +266,19 @@ func WriteValue(w Writer, value interface{}) (n int, err error) {
 		}
 		m, err = WriteObjectEndMarker(w)
 		return n + m, err
-	case reflect.Map:
-		if v.Type().Key().Kind() != reflect.String {
-			return 0, errors.New("Unsupported type")
-		}
-		if v.IsNil() {
-			return WriteNull(w)
-		}
+	case reflect.Struct:
 		n, err = WriteObjectMarker(w)
 		if err != nil {
 			return
 		}
+
 		m := 0
-		var sv stringValues = v.MapKeys()
-		sort.Sort(sv)
-		for _, k := range sv {
-			m, err = WriteObjectName(w, k.String())
-			if err != nil {
-				return
-			}
-			n += m
-			m, err = WriteValue(w, v.MapIndex(k).Interface())
-			if err != nil {
-				return
-			}
-			n += m
+		m, err = WriteFields(w, v)
+		if err != nil {
+			return
 		}
+		n += m
+
 		m, err = WriteObjectEndMarker(w)
 		return n + m, err
 	}
@@ -371,6 +405,7 @@ func ReadObjectProperty(r Reader) (Object, error) {
 		if _, ok := obj[name]; ok {
 			return nil, errors.New("object-property exists")
 		}
+
 		value, err := ReadValue(r)
 		if err != nil {
 			return nil, err
