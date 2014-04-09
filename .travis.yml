@@ -1,3 +1,9 @@
 language: go
+go: 
+ - 1.1
+ - 1.2
+ - release
+ - tip
+
 script:
- - curl https://raw.github.com/daaku/go.travis/master/install | sh
+ - go test -v ./...
