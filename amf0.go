@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -172,6 +173,54 @@ func WriteObject(w Writer, obj Object) (n int, err error) {
 	return n + m, err
 }
 
+func WriteStruct(w Writer, value reflect.Value) (n int, err error) {
+	var m int
+FOR_LOOP:
+	for i := 0; i < value.NumField(); i++ {
+		structField := value.Type().Field(i)
+		if structField.Anonymous {
+			m, err = WriteStruct(w, value.Field(i))
+			if err != nil {
+				return
+			}
+			n += m
+		} else {
+			name := structField.Tag.Get("amf")
+			switch name {
+			case "":
+				name = structField.Name
+			case "-":
+				continue FOR_LOOP
+			default:
+				if strings.HasSuffix(name, ",omitempty") {
+					if value.IsNil() {
+						continue FOR_LOOP
+					}
+
+					name = strings.Split(name, ",")[0]
+					if len(name) == 0 {
+						name = structField.Name
+					}
+				}
+			}
+
+			m, err = WriteObjectName(w, name)
+			if err != nil {
+				return
+			}
+			n += m
+			field := value.Field(i)
+			m, err = writeValue(w, field)
+			if err != nil {
+				return
+			}
+			n += m
+		}
+	}
+
+	return n, nil
+}
+
 func WriteValue(w Writer, value interface{}) (n int, err error) {
 	if value == nil {
 		return WriteNull(w)
@@ -180,9 +229,13 @@ func WriteValue(w Writer, value interface{}) (n int, err error) {
 	if !v.IsValid() {
 		return WriteNull(w)
 	}
+	return writeValue(w, v)
+}
+
+func writeValue(w Writer, v reflect.Value) (n int, err error) {
 	switch v.Kind() {
 	case reflect.String:
-		return WriteString(w, value.(string))
+		return WriteString(w, v.String())
 	case reflect.Bool:
 		return WriteBoolean(w, v.Bool())
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
@@ -248,13 +301,34 @@ func WriteValue(w Writer, value interface{}) (n int, err error) {
 		}
 		m, err = WriteObjectEndMarker(w)
 		return n + m, err
+	case reflect.Ptr:
+		if v.IsNil() || !v.IsValid() {
+			return WriteNull(w)
+		}
+		return WriteValue(w, v.Elem().Interface())
+	case reflect.Struct:
+		n, err = WriteObjectMarker(w)
+		if err != nil {
+			return
+		}
+		m := 0
+		m, err = WriteStruct(w, v)
+		if err != nil {
+			return
+		}
+		n += m
+		m, err = WriteObjectEndMarker(w)
+		return n + m, err
 	}
-	if _, ok := value.(Undefined); ok {
-		return WriteUndefined(w)
-	} else if vt, ok := value.(Object); ok {
-		return WriteObject(w, vt)
-	} else if vt, ok := value.([]interface{}); ok {
-		return WriteEcmaArray(w, vt)
+	value := v.Interface()
+	if value != nil {
+		if _, ok := value.(Undefined); ok {
+			return WriteUndefined(w)
+		} else if vt, ok := value.(Object); ok {
+			return WriteObject(w, vt)
+		} else if vt, ok := value.([]interface{}); ok {
+			return WriteEcmaArray(w, vt)
+		}
 	}
 	return 0, errors.New("Unsupported type")
 }

@@ -221,6 +221,22 @@ func TestEncodeUndefined(t *testing.T) {
 	}
 }
 
+type SubStruct struct {
+	data string `amf:"data"`
+}
+
+type Embedded struct {
+	member string `amf:"member"`
+}
+
+type Struct struct {
+	Embedded
+	Name   string     `amf:"name"`
+	Sub    *SubStruct `amf:"sub"`
+	Empty  string
+	Unused string `amf:"-"`
+}
+
 type TestEncodeValueCase struct {
 	name   string
 	v      interface{}
@@ -260,6 +276,16 @@ var testCases = []TestEncodeValueCase{
 			0x00, 0x01, '2', 0x02, 0x00, 0x01, 'c',
 			0x00, 0x00, 0x09,
 		}},
+	{"struct", &Struct{Embedded{"emb"}, "zhang", &SubStruct{"123"}, "noname", "unused"},
+		[]byte{0x03,
+			0x00, 0x06, 'm', 'e', 'm', 'b', 'e', 'r', 0x02, 0x00, 0x03, 'e', 'm', 'b', // member: emb [Embedded]
+			0x00, 0x04, 'n', 'a', 'm', 'e', 0x02, 0x00, 0x05, 'z', 'h', 'a', 'n', 'g', // name: zhang
+			0x00, 0x03, 's', 'u', 'b', 0x03, // sub: SubStruct{
+			0x00, 0x04, 'd', 'a', 't', 'a', 0x02, 0x00, 0x03, '1', '2', '3', // data: 123
+			0x00, 0x00, 0x09, // }
+			0x00, 0x05, 'E', 'm', 'p', 't', 'y', 0x02, 0x00, 0x06, 'n', 'o', 'n', 'a', 'm', 'e', // Empty: noname
+			0x00, 0x00, 0x09,
+		}},
 	/*
 		{"object", Object{"0": "a", "1": "b", "2": "c"},
 			[]byte{0x03,
@@ -292,7 +318,7 @@ func TestEncodeValue(t *testing.T) {
 		}
 		got := buf.Bytes()
 		if !bytes.Equal(c.expect, got) {
-			t.Errorf("WriteValue(%s) go6: %x, expect %x\n", c.name, got, c.expect)
+			t.Errorf("WriteValue(%s)\n   got: % 2x\nexpect: % 2x\n", c.name, got, c.expect)
 			continue
 		}
 	}
